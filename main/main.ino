@@ -5,6 +5,7 @@
 #define DELAY_RESET         20000
 #define DELAY_FOR_STABILITY 5000
 #define TIMER_LOOP          50000
+#define TIMER_MCU_ANSWER    10000000 // 10 seconds
 
 #define BAUDRATE  19200
 
@@ -23,7 +24,7 @@
 #define ERASE_BLK_3 0x80
 #define ERASE_BLK_4 0xC0
 
-enum class Error
+enum Error
 {
   OK,
   TIMEOUT_ERR,
@@ -32,14 +33,34 @@ enum class Error
   ERR,
 };
 
-#define CHECK_ERROR(x, msg) \
+void stopProgram() {
+    noInterrupts(); 
+    while (true) {
+        
+    }
+}
+
+#define CHECK_ERROR(err, msg) \
 do { \
-  if (Error::OK != x) \
+  if (OK != err) \
   { \
     char buf[64]; \
-    sprintf(buf, "%s Error nb: %d", msg, x); \
+    sprintf(buf, "%s Error nb: %d", msg, err); \
     Serial.println(buf); \
-    exit(0); \
+    Serial.flush(); \
+    stopProgram(); \
+  } \
+} while (0)
+
+#define CHECK_ERROR_WITH_RETURN(err, msg) \
+do { \
+  if (OK != err) \
+  { \
+    char buf[64]; \
+    sprintf(buf, "%s Error nb: %d", msg, err); \
+    Serial.println(buf); \
+    Serial.flush(); \
+    return err; \
   } \
 } while (0)
 
@@ -78,9 +99,16 @@ void enterBootloader()
 
 Error read_mcu_serial()
 {
-  Error err = Error::ERR;
-  while (mcuSerial.available()) {
-    byte b = mcuSerial.read();
+  Error err = ERR;
+  if (!mcuSerial.available())
+  {
+    return err; // MCU should echo back
+  }
+
+  const unsigned long start = micros();
+  byte b = mcuSerial.read();
+  while (('X' != b && 'P' != b && '.' != b) && (micros() - start < TIMER_MCU_ANSWER)) {
+    /* Write to the console for debugging purpose. */
     if (b < 0x20 || b > 0x7E) {
         Serial.print("0x");
         if (b < 0x10) Serial.print('0');
@@ -89,24 +117,24 @@ Error read_mcu_serial()
     } else {
         Serial.print((char)b);
     }
-
-    switch (b)
-    {
-      case 'X':
-        err = Error::CHECKSUM_ERR;
-        break;
-      
-      case 'P':
-        err = Error::SECURITY_ERR;
-        break;
-      
-      case '.':
-        err = Error::OK;
-        break;
-      
-      default: {}
-    }
-
+    b = mcuSerial.read();
+  }
+  /* Based on the value, we can know the MCU state. */
+  switch (b)
+  {
+    case 'X':
+      err = CHECKSUM_ERR;
+      break;
+    
+    case 'P':
+      err = SECURITY_ERR;
+      break;
+    
+    case '.':
+      err = OK;
+      break;
+    
+    default: {}
   }
   Serial.println();
 
@@ -115,14 +143,14 @@ Error read_mcu_serial()
 
 Error write_to_mcu(const byte *bytes, uint8_t size)
 {
-  Error err = Error::OK;
+  Error err = OK;
   mcuSerial.write(bytes, size);
   unsigned long start = micros();
   while((!mcuSerial.available()) && (micros() - start < TIMER_LOOP));
 
   if (!mcuSerial.available())
   {
-    err = Error::TIMEOUT_ERR;
+    err = TIMEOUT_ERR;
   }
   return err;
 }
@@ -165,17 +193,20 @@ Error create_frame_header_and_write(const byte *bytes, uint8_t size)
   byte_to_hex(checksum, &bytes_with_frame[offset]); offset += 2;
 
   Error err = write_to_mcu(bytes_with_frame, offset);
-  if (Error::OK != err)
-  {
-    return err;
-  }
+  CHECK_ERROR_WITH_RETURN(err, "write_to_mcu in create_frame_header_and_write");
+
   return read_mcu_serial();
 }
 
 Error initialize_baudrate()
 {
   byte data = 'U';
-  return write_to_mcu(&data, 1); // Don't need a frame for the auto baudrate
+  Error err = write_to_mcu(&data, 1); // Don't need a frame for the auto baudrate
+  CHECK_ERROR_WITH_RETURN(err, "write_to_mcu in initialize_baudrate");
+
+  /* Empty the UART buffer */
+  while(mcuSerial.available()) { mcuSerial.read(); }
+  return err;
 }
 
 Error read_mcu_id()
@@ -184,10 +215,36 @@ Error read_mcu_id()
   return create_frame_header_and_write(data, sizeof(data));
 }
 
-Error erase_blocks(int block)
+Error erase_block(int block)
 {
   byte data[] = { WRITE_FCT, ERASE, block };
   return create_frame_header_and_write(data, sizeof(data));
+}
+
+Error erase_all_blocks()
+{
+  Error err;
+  err = erase_block(ERASE_BLK_0);
+  CHECK_ERROR_WITH_RETURN(err, "BLK_0");
+  Serial.println("Block 0 erased");
+
+  err = erase_block(ERASE_BLK_1);
+  CHECK_ERROR_WITH_RETURN(err, "BLK_1");
+  Serial.println("Block 1 erased");
+
+  err = erase_block(ERASE_BLK_2);
+  CHECK_ERROR_WITH_RETURN(err, "BLK_2");
+  Serial.println("Block 2 erased");
+
+  err = erase_block(ERASE_BLK_3);
+  CHECK_ERROR_WITH_RETURN(err, "BLK_3");
+  Serial.println("Block 3 erased");
+
+  err = erase_block(ERASE_BLK_4);
+  CHECK_ERROR_WITH_RETURN(err, "BLK_4");
+  Serial.println("Block 4 erased");
+
+  return err;
 }
 
 void setup ()
@@ -209,8 +266,8 @@ void setup ()
   err = read_mcu_id();
   CHECK_ERROR(err, "read_mcu_id");
 
-  err = erase_blocks(ERASE_BLK_0);
-  CHECK_ERROR(err, "erase_blocks");
+  err = erase_all_blocks();
+  CHECK_ERROR(err, "erase_all_blocks");
 }
 
 void loop ()
