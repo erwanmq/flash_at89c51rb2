@@ -16,7 +16,7 @@
 
 /** Write functions **/
 #define WRITE_FCT 0x03
-#define ERASE     0x01;
+#define ERASE     0x01
 #define ERASE_BLK_0 0x00
 #define ERASE_BLK_1 0x20
 #define ERASE_BLK_2 0x40
@@ -117,8 +117,30 @@ bool initialize_baudrate()
 
 bool read_mcu_id()
 {
-  const byte data[] = { 0x05, 0x07, 0x02 };
+  const byte data[] = { READ_FCT, READ_IDs, READ_MANUFACTURER_ID };
   return create_frame_header_and_write(data, sizeof(data));
+}
+
+bool erase_blocks(int block)
+{
+  byte data[] = { WRITE_FCT, ERASE, block };
+  return create_frame_header_and_write(data, sizeof(data));
+}
+
+void read_mcu_serial()
+{
+  while (mcuSerial.available()) {
+    byte b = mcuSerial.read();
+    if (b < 0x20 || b > 0x7E) {
+        Serial.print("0x");
+        if (b < 0x10) Serial.print('0');
+        Serial.print(b, HEX);
+        Serial.print(" ");
+    } else {
+        Serial.print((char)b);
+    }
+  }
+  Serial.println();
 }
 
 void setup ()
@@ -133,34 +155,20 @@ void setup ()
   We have to send the character "U" and wait for its response. */
   if (!initialize_baudrate())
   {
-    Serial.write("Timeout\n");
+    Serial.print("Timeout\n");
     return; // We stop the program
   }
-  Serial.write(mcuSerial.read());
+  read_mcu_serial();
 
   /* Check if the MCU is responding to a command. */
   if (!read_mcu_id())
   {
-    Serial.write("Timeout\n");
+    Serial.print("Timeout\n");
     return; // We stop the program
   }
-  while(mcuSerial.available())
-  {
-    Serial.write(mcuSerial.read());
-  }
+  read_mcu_serial();
 
-
-
-
-  // byte data[] = {0x01, 0x00, 0x10, 0x00, 0x55, 0x9A};
-  // mcuSerial.write(data, sizeof(data));
-
-  // while(mcuSerial.available())
-  // {
-  //   Serial.write('\n');
-  //   byte incoming = mcuSerial.read();
-  //   Serial.println(incoming, DEC);
-  // }
+  erase_blocks(ERASE_BLK_0);
 }
 
 void loop ()
