@@ -4,7 +4,9 @@
 #define DELAY_BOOTTIME      10000 
 #define DELAY_RESET         20000
 #define DELAY_FOR_STABILITY 5000
-#define TIMER_LOOP          5000
+#define TIMER_LOOP          50000
+
+#define BAUDRATE  19200
 
 /* ISP functions */
 /** Read functions **/
@@ -20,18 +22,6 @@
 #define ERASE_BLK_2 0x40
 #define ERASE_BLK_3 0x80
 #define ERASE_BLK_4 0xC0
-
-// TODO: Change the unsigned char to uint8_t
-typedef struct 
-{
-  const unsigned char record_mark = ":";
-  unsigned char reclen;
-  unsigned char load_offset[2];
-  unsigned char record_type;
-  unsigned char *data;
-  unsigned char checksum;
-} frame_header_t;
-
 
 const byte RST_PIN  = 4;
 const byte PSEN_PIN = 6;
@@ -61,31 +51,13 @@ void enterBootloader()
 
   /* We set to input to increase impedance and let the MCU drive the pins */
   pinMode(PSEN_PIN, INPUT);
-  pinMode(RST_PIN, INPUT);
+  //pinMode(RST_PIN, INPUT);
 
   delay_without_stop(DELAY_FOR_STABILITY);
 }
 
-bool write_to_mcu(const byte *bytes, unsigned char size, SoftwareSerial &mcuSerial)
+bool write_to_mcu(const byte *bytes, uint8_t size)
 {
-  unsigned char reclen = size + 1 - 1; // + 1 for checksum, -1 for the main command
-  unsigned char checksum = 0;
-  for (unsigned char i = 0; i < size; i++)
-  {
-    checksum += bytes[i];
-  }
-  checksum += reclen;
-
-  frame_header_t frame_header = {
-    .reclen = reclen, 
-    .load_offset = 0,
-    .record_type = bytes[0],
-    .data = (bytes + 1),
-    .checksum = 256 - checksum; // TODO: remove the 256 magic number
-  };
-
-  // TODO: Implement the frame header
-
   mcuSerial.write(bytes, size);
   unsigned long start = micros();
   while((!mcuSerial.available()) && (micros() - start < TIMER_LOOP));
@@ -97,39 +69,79 @@ bool write_to_mcu(const byte *bytes, unsigned char size, SoftwareSerial &mcuSeri
   return true;
 }
 
-bool initialize_baudrate(SoftwareSerial &mcuSerial)
-{
-  const byte data[] = { "U" };
-  return write_to_mcu(data, sizeof(data), mcuSerial);
+void byte_to_hex(uint8_t byte, char *out) {
+    const char hex_chars[] = "0123456789ABCDEF";
+    out[0] = hex_chars[(byte >> 4) & 0x0F];
+    out[1] = hex_chars[byte & 0x0F];
 }
 
-bool read_mcu_id(SoftwareSerial &mcuSerial)
+bool create_frame_header_and_write(const byte *bytes, uint8_t size)
 {
-  const byte data[] = { READ_FCT, READ_IDs, READ_MANUFACTURER_ID };
-  return write_to_mcu(data, sizeof(data), mcuSerial);
+  const byte record_mark = ':';
+  byte load_offset[2] = { 0x00, 0x00 };
+
+  byte reclen = size - 1; // + 1 for checksum, -1 for the main command
+  byte checksum = 0;
+  for (uint8_t i = 0; i < size; i++)
+  {
+    checksum += bytes[i];
+  }
+  checksum += reclen;
+  checksum = 256 - checksum; // TODO: remove the 256 magic number
+
+  const size_t MAX_FRAME_SIZE = 256;
+  byte bytes_with_frame[MAX_FRAME_SIZE];
+
+  size_t offset = 0;
+  bytes_with_frame[offset++] = record_mark;
+  byte_to_hex(reclen, &bytes_with_frame[offset]); offset += 2;
+  byte_to_hex(load_offset[0], &bytes_with_frame[offset]); offset += 2;
+  byte_to_hex(load_offset[1], &bytes_with_frame[offset]); offset += 2;
+
+  for (uint8_t i = 0; i < size; i++)
+  {
+    byte_to_hex(bytes[i], &bytes_with_frame[offset]);
+    offset += 2;
+  }
+
+  byte_to_hex(checksum, &bytes_with_frame[offset]); offset += 2;
+
+  return write_to_mcu(bytes_with_frame, offset);
+}
+
+bool initialize_baudrate()
+{
+  byte data = 'U';
+  return write_to_mcu(&data, 1); // Don't need a frame for the auto baudrate
+}
+
+bool read_mcu_id()
+{
+  const byte data[] = { 0x05, 0x07, 0x02 };
+  return create_frame_header_and_write(data, sizeof(data));
 }
 
 void setup ()
 {
-  mcuSerial.begin(19200);
-  Serial.begin(19200);
+  mcuSerial.begin(BAUDRATE);
+  Serial.begin(BAUDRATE);
 
   delay_without_stop(DELAY_BOOTTIME);
   enterBootloader();
 
   /* MCU entered in the bootloader stage. 
   We have to send the character "U" and wait for its response. */
-  if (!initialize_baudrate(mcuSerial))
+  if (!initialize_baudrate())
   {
-    Serial.write("Timeout");
+    Serial.write("Timeout\n");
     return; // We stop the program
   }
   Serial.write(mcuSerial.read());
 
   /* Check if the MCU is responding to a command. */
-  if (!read_mcu_id(mcuSerial))
+  if (!read_mcu_id())
   {
-    Serial.write("Timeout");
+    Serial.write("Timeout\n");
     return; // We stop the program
   }
   while(mcuSerial.available())
