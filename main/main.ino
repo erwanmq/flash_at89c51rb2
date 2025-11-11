@@ -1,250 +1,116 @@
-#include "SoftwareSerial.h"
+#include "at89c51rb2.h"
 
-/* Delay in ms */
-#define DELAY_BOOTTIME      10000 
-#define DELAY_RESET         20000
-#define DELAY_FOR_STABILITY 5000
-#define TIMER_LOOP          50000
-#define TIMER_MCU_ANSWER    10000000 // 10 seconds
-
-#define BAUDRATE  19200
-
-/* ISP functions */
-/** Read functions **/
-#define READ_FCT              0x05
-#define READ_IDs              0x00
-#define READ_MANUFACTURER_ID  0x00
-
-/** Write functions **/
-#define WRITE_FCT 0x03
-#define ERASE     0x01
-#define ERASE_BLK_0 0x00
-#define ERASE_BLK_1 0x20
-#define ERASE_BLK_2 0x40
-#define ERASE_BLK_3 0x80
-#define ERASE_BLK_4 0xC0
-
-enum Error
+void remove_unused_serial_char()
 {
-  OK,
-  TIMEOUT_ERR,
-  CHECKSUM_ERR,
-  SECURITY_ERR,
-  ERR,
-};
-
-void stopProgram() {
-    noInterrupts(); 
-    while (true) {
-        
-    }
+  while(Serial.available()) { Serial.read(); } // Read remaining unused characters.
 }
 
-#define CHECK_ERROR(err, msg) \
-do { \
-  if (OK != err) \
-  { \
-    char buf[64]; \
-    sprintf(buf, "%s Error nb: %d", msg, err); \
-    Serial.println(buf); \
-    Serial.flush(); \
-    stopProgram(); \
-  } \
-} while (0)
-
-#define CHECK_ERROR_WITH_RETURN(err, msg) \
-do { \
-  if (OK != err) \
-  { \
-    char buf[64]; \
-    sprintf(buf, "%s Error nb: %d", msg, err); \
-    Serial.println(buf); \
-    Serial.flush(); \
-    return err; \
-  } \
-} while (0)
-
-const byte RST_PIN  = 4;
-const byte PSEN_PIN = 6;
-const byte TX_PIN   = 10;
-const byte RX_PIN   = 11;
-
-SoftwareSerial mcuSerial(RX_PIN, TX_PIN);
-
-void delay_without_stop(unsigned long ms)
+byte read_answer()
 {
-  unsigned long start = micros();
-  while (micros() - start < ms);
+  byte b = Serial.read();
+  Serial.readStringUntil('\n'); // Remove '\n' carriage
+  return b;
 }
 
-void enterBootloader()
-{
-  pinMode(RST_PIN, OUTPUT);
-  pinMode(PSEN_PIN, OUTPUT);
-
-  digitalWrite(RST_PIN, HIGH);
-  delay_without_stop(DELAY_FOR_STABILITY);
-  digitalWrite(PSEN_PIN, LOW);
-  delay_without_stop(DELAY_RESET);
-  digitalWrite(RST_PIN, LOW);
-  delay_without_stop(DELAY_FOR_STABILITY);
-  digitalWrite(PSEN_PIN, HIGH);
-
-  /* We set to input to increase impedance and let the MCU drive the pins */
-  pinMode(PSEN_PIN, INPUT);
-  //pinMode(RST_PIN, INPUT);
-
-  delay_without_stop(DELAY_FOR_STABILITY);
-}
-
-Error read_mcu_serial()
-{
-  Error err = ERR;
-  if (!mcuSerial.available())
-  {
-    return err; // MCU should echo back
-  }
-
-  const unsigned long start = micros();
-  byte b = mcuSerial.read();
-  while (('X' != b && 'P' != b && '.' != b) && (micros() - start < TIMER_MCU_ANSWER)) {
-    /* Write to the console for debugging purpose. */
-    if (b < 0x20 || b > 0x7E) {
-        Serial.print("0x");
-        if (b < 0x10) Serial.print('0');
-        Serial.print(b, HEX);
-        Serial.print(" ");
-    } else {
-        Serial.print((char)b);
-    }
-    b = mcuSerial.read();
-  }
-  /* Based on the value, we can know the MCU state. */
-  switch (b)
-  {
-    case 'X':
-      err = CHECKSUM_ERR;
-      break;
-    
-    case 'P':
-      err = SECURITY_ERR;
-      break;
-    
-    case '.':
-      err = OK;
-      break;
-    
-    default: {}
-  }
-  Serial.println();
-
-  return err;
-}
-
-Error write_to_mcu(const byte *bytes, uint8_t size)
+Error erase_blocks()
 {
   Error err = OK;
-  mcuSerial.write(bytes, size);
-  unsigned long start = micros();
-  while((!mcuSerial.available()) && (micros() - start < TIMER_LOOP));
-
-  if (!mcuSerial.available())
+  remove_unused_serial_char();
+  Serial.println("Block 0, 1, 2, 3, 4: ");
+  while(!Serial.available()); // Wait for the answer
+  int second_choice = read_answer();
+  switch (second_choice)
   {
-    err = TIMEOUT_ERR;
+    case '0':
+      err = erase_block(ERASE_BLK_0);
+      break;
+    case '1':
+      err = erase_block(ERASE_BLK_1);
+      break;
+    case '2':
+      err = erase_block(ERASE_BLK_2);
+      break;
+    case '3':
+      err = erase_block(ERASE_BLK_3);
+      break;
+    case '4':
+      err = erase_block(ERASE_BLK_4);
+      break;
   }
+
   return err;
 }
 
-void byte_to_hex(uint8_t byte, char *out) {
-    const char hex_chars[] = "0123456789ABCDEF";
-    out[0] = hex_chars[(byte >> 4) & 0x0F];
-    out[1] = hex_chars[byte & 0x0F];
-}
-
-Error create_frame_header_and_write(const byte *bytes, uint8_t size)
+Error program_data()
 {
-  const byte record_mark = ':';
-  byte load_offset[2] = { 0x00, 0x00 };
+  byte program_data_single_byte = 0;
+  byte program_data[128] = { 0 };
 
-  byte reclen = size - 1; // + 1 for checksum, -1 for the main command
-  byte checksum = 0;
-  for (uint8_t i = 0; i < size; i++)
-  {
-    checksum += bytes[i];
-  }
-  checksum += reclen;
-  checksum = 256 - checksum; // TODO: remove the 256 magic number
+  remove_unused_serial_char();
+  Serial.println("Enter your hex data: ");
+  while(!Serial.available()); // Wait for the answer
 
-  const size_t MAX_FRAME_SIZE = 256;
-  byte bytes_with_frame[MAX_FRAME_SIZE];
+  String input = Serial.readStringUntil('\n');
+  input.trim();
 
-  size_t offset = 0;
-  bytes_with_frame[offset++] = record_mark;
-  byte_to_hex(reclen, &bytes_with_frame[offset]); offset += 2;
-  byte_to_hex(load_offset[0], &bytes_with_frame[offset]); offset += 2;
-  byte_to_hex(load_offset[1], &bytes_with_frame[offset]); offset += 2;
+  int byteCount = 0;
+  // Process each pair of hex characters
+  for (int i = 0; i < input.length(); i += 2) {
+    if (i + 1 >= input.length()) break;  // avoid incomplete pairs
 
-  for (uint8_t i = 0; i < size; i++)
-  {
-    byte_to_hex(bytes[i], &bytes_with_frame[offset]);
-    offset += 2;
+    char high = input[i];
+    char low  = input[i + 1];
+
+    // Combine the two ASCII hex characters into one byte
+    byte value = (strtol((String() + high + low).c_str(), NULL, 16)) & 0xFF;
+
+    program_data[byteCount++] = value;
+
+    if (byteCount >= sizeof(program_data)) break;
   }
 
-  byte_to_hex(checksum, &bytes_with_frame[offset]); offset += 2;
-
-  Error err = write_to_mcu(bytes_with_frame, offset);
-  CHECK_ERROR_WITH_RETURN(err, "write_to_mcu in create_frame_header_and_write");
-
-  return read_mcu_serial();
+  Serial.print("Data to write is : ");
+  Serial.write(program_data, byteCount);
+  Serial.println("");
+  return write_program_data(program_data, byteCount);
 }
 
-Error initialize_baudrate()
+int insert_display_memory()
 {
-  byte data = 'U';
-  Error err = write_to_mcu(&data, 1); // Don't need a frame for the auto baudrate
-  CHECK_ERROR_WITH_RETURN(err, "write_to_mcu in initialize_baudrate");
+  int value = 0;
+  while(!Serial.available()); // Wait for the answer
+  if (Serial.available()) {
+    String input = Serial.readStringUntil('\n'); // read until Enter key
+    input.trim(); // remove spaces or \r
 
-  /* Empty the UART buffer */
-  while(mcuSerial.available()) { mcuSerial.read(); }
-  return err;
+    // convert the string (like "2E") to an integer in base 16
+    value = strtol(input.c_str(), NULL, 16);
+    Serial.print("You entered: 0x");
+    Serial.println(value, HEX);
+  }
+
+  return value;
 }
 
-Error read_mcu_id()
+Error display_memory()
 {
-  const byte data[] = { READ_FCT, READ_IDs, READ_MANUFACTURER_ID };
-  return create_frame_header_and_write(data, sizeof(data));
-}
+  remove_unused_serial_char();
+  Serial.println("Enter your start address (2 bytes - in hex (e.g. 2E for 0x2E))");
+  Serial.println("MSB:");
 
-Error erase_block(int block)
-{
-  byte data[] = { WRITE_FCT, ERASE, block };
-  return create_frame_header_and_write(data, sizeof(data));
-}
+  byte start_addr[2] = { 0 }; // TODO: Remove 2 magic numbers and in the loop
+  byte end_addr[2] = { 0 };
 
-Error erase_all_blocks()
-{
-  Error err;
-  err = erase_block(ERASE_BLK_0);
-  CHECK_ERROR_WITH_RETURN(err, "BLK_0");
-  Serial.println("Block 0 erased");
+  start_addr[0] = (byte)insert_display_memory();
+  Serial.println("LSB:");
+  start_addr[1] = (byte)insert_display_memory();
 
-  err = erase_block(ERASE_BLK_1);
-  CHECK_ERROR_WITH_RETURN(err, "BLK_1");
-  Serial.println("Block 1 erased");
+  Serial.println("End address - MSB:");
+  end_addr[0] = (byte)insert_display_memory();
+  Serial.println("LSB:");
+  end_addr[1] = (byte)insert_display_memory();
 
-  err = erase_block(ERASE_BLK_2);
-  CHECK_ERROR_WITH_RETURN(err, "BLK_2");
-  Serial.println("Block 2 erased");
-
-  err = erase_block(ERASE_BLK_3);
-  CHECK_ERROR_WITH_RETURN(err, "BLK_3");
-  Serial.println("Block 3 erased");
-
-  err = erase_block(ERASE_BLK_4);
-  CHECK_ERROR_WITH_RETURN(err, "BLK_4");
-  Serial.println("Block 4 erased");
-
-  return err;
+  return display_memory(start_addr, end_addr);
 }
 
 void setup ()
@@ -255,22 +121,52 @@ void setup ()
   delay_without_stop(DELAY_BOOTTIME);
   enterBootloader();
 
-  Error err;
-
   /* MCU entered in the bootloader stage. 
   We have to send the character "U" and wait for its response. */
-  err = initialize_baudrate();
+  Error err = initialize_baudrate();
   CHECK_ERROR(err, "Initialize baudrate");
 
-  /* Check if the MCU is responding to a command. */
-  err = read_mcu_id();
-  CHECK_ERROR(err, "read_mcu_id");
-
-  err = erase_all_blocks();
-  CHECK_ERROR(err, "erase_all_blocks");
+  Serial.println("Welcome to the AT89C51RB2 flash program: ");
 }
 
 void loop ()
 {
+  Serial.println("---------------------------------------");
+  Serial.println("Read manufacturer ID: 0");
+  Serial.println("Read SSB: 1");
+  Serial.println("Full Chip Erase: 2");
+  Serial.println("Erase a memory block: 3");
+  Serial.println("Program data: 4");
+  Serial.println("Display memory data: 5");
+  while(!Serial.available()); // Wait for an answer
 
+  Error err = OK;
+  int choice = read_answer();
+
+  switch (choice)
+  {
+    case '0':
+      err = read_mcu_id();
+      break;
+    case '1':
+      err = read_SSB();
+      break;
+    case '2':
+      err = full_chip_erase();
+      break;
+    case '3':
+      err = erase_blocks();
+      break;
+
+    case '4':
+      err = program_data();
+      break;
+
+    case '5':
+      err = display_memory();
+      break;
+  }
+  CHECK_ERROR(err, "error");
+
+  while(Serial.available()) { Serial.read(); } // Empty the buffer.
 }  
