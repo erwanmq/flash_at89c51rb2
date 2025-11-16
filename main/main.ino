@@ -43,7 +43,6 @@ Error erase_blocks()
 
 Error program_data()
 {
-  byte program_data_single_byte = 0;
   byte program_data[128] = { 0 };
 
   remove_unused_serial_char();
@@ -53,26 +52,34 @@ Error program_data()
   String input = Serial.readStringUntil('\n');
   input.trim();
 
+  Error err;
   int byteCount = 0;
   // Process each pair of hex characters
-  for (int i = 0; i < input.length(); i += 2) {
-    if (i + 1 >= input.length()) break;  // avoid incomplete pairs
+  for (int i = 0; i < input.length(); i++) {
 
-    char high = input[i];
-    char low  = input[i + 1];
-
-    // Combine the two ASCII hex characters into one byte
-    byte value = (strtol((String() + high + low).c_str(), NULL, 16)) & 0xFF;
-
-    program_data[byteCount++] = value;
-
+    if (0 != i && ':' == input[i])
+    {
+      Serial.print("Data to write is : ");
+      Serial.write(program_data, byteCount);
+      Serial.println("");
+      err = write_to_mcu(program_data, byteCount);
+      CHECK_ERROR_WITH_RETURN(err, "program_data - write_to_mcu");
+      err = read_mcu_serial();
+      CHECK_ERROR_WITH_RETURN(err, "program_data - read_mcu_serial");
+      byteCount = 0;
+    }
+    program_data[byteCount++] = input[i];
+  
     if (byteCount >= sizeof(program_data)) break;
   }
 
   Serial.print("Data to write is : ");
   Serial.write(program_data, byteCount);
   Serial.println("");
-  return write_program_data(program_data, byteCount);
+
+  err = write_to_mcu(program_data, byteCount);
+  CHECK_ERROR_WITH_RETURN(err, "program_data - write_to_mcu");
+  return read_mcu_serial();
 }
 
 int insert_display_memory()
