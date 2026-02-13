@@ -120,17 +120,29 @@ void enterBootloader()
 
 Error read_mcu_serial()
 {
-  Error err = ERR;
-  if (!mcuSerial.available())
-  {
-    return err; // MCU should echo back
-  }
+  Error err = OK;
+  int index_buffer = 0;
 
+  
+  // if (index_buffer < size_buf)
+  // {
+  //   buffer[index_buffer++] = b;
+  // }
+  Serial.println();
   const unsigned long start = micros();
-  byte b = mcuSerial.read();
-  while (('X' != b && 'P' != b && '.' != b && '\r' != b) && (micros() - start < TIMER_MCU_ANSWER)) {
+  while((!mcuSerial.available()) && (micros() - start < TIMER_LOOP));
+  byte b;
+  do {
+    unsigned long start = micros();
+    while((!mcuSerial.available()) && (micros() - start < TIMER_LOOP));
+    if (!mcuSerial.available())
+    {
+      break;
+    }
+    b = mcuSerial.read();
     /* Write to the console for debugging purpose. */
     if (b < 0x20 || b > 0x7E) {
+        Serial.print(" ");
         Serial.print("0x");
         if (b < 0x10) Serial.print('0');
         Serial.print(b, HEX);
@@ -138,42 +150,114 @@ Error read_mcu_serial()
     } else {
         Serial.print((char)b);
     }
-    b = mcuSerial.read();
-  }
+  } while (micros() - start < TIMER_MCU_ANSWER);
+
+  Serial.println("Read finished");
   mcuSerial.readStringUntil('\n'); // Empty the buffer
+
+  
   /* Based on the value, we can know the MCU state. */
-  switch (b)
-  {
-    case 'X':
-      err = CHECKSUM_ERR;
-      break;
+  // switch (b)
+  // {
+  //   case 'X':
+  //     err = CHECKSUM_ERR;
+  //     break;
     
-    case 'P':
-      err = SECURITY_ERR;
-      break;
+  //   case 'P':
+  //     err = SECURITY_ERR;
+  //     break;
     
-    case '.':    
-    case '\r':
-      err = OK;
-      break;
+  //   case '.':    
+  //   case '\r':
+  //     err = OK;
+  //     break;
     
-    default: {}
-  }
+  //   default: {}
+  // }
   Serial.println();
 
+  return err;
+}
+
+Error write(const byte *bytes, uint8_t size)
+{
+  Error err = OK;
+  for (int i = 0; i < size; i++)
+  {
+    /* Write to MCU */
+    mcuSerial.write(bytes[i]);
+
+    /* Wait its echo */
+    unsigned long start = micros();
+    while((!mcuSerial.available()) && (micros() - start < TIMER_LOOP));
+
+    if (mcuSerial.available())
+    {
+      byte echo = mcuSerial.read();
+      if (echo != bytes[i])
+      {
+        Serial.print("MCU didn't echo back the correct value: ");
+        Serial.print((char)echo);
+        Serial.print(" original: ");
+        Serial.println((char)bytes[i]);
+        err = ERR;
+        break;
+      } 
+      else 
+      {
+        Serial.print((char)echo);
+        Serial.print(" ");
+      }
+    }
+    else 
+    {
+      err = TIMEOUT_ERR;
+      break;
+    }
+  }
   return err;
 }
 
 Error write_to_mcu(const byte *bytes, uint8_t size)
 {
   Error err = OK;
-  mcuSerial.write(bytes, size);
-  unsigned long start = micros();
-  while((!mcuSerial.available()) && (micros() - start < TIMER_LOOP));
+  
+  err = write(bytes, size);
 
-  if (!mcuSerial.available())
+  /* Check the end of transmission */
+  byte cr_lf[2];
+  for (int i = 0; i < sizeof(cr_lf); i++)
   {
-    err = TIMEOUT_ERR;
+    unsigned long start = micros();
+    while((!mcuSerial.available()) && (micros() - start < TIMER_MCU_ANSWER));
+    if (mcuSerial.available())
+    {
+      byte b = mcuSerial.read();
+      Serial.print((int)b);
+      if ('\r' != b && '\n' != b)
+      {
+        Serial.print((char)b);
+        Serial.println();
+        i--;
+      }
+      else
+      {
+        cr_lf[i] = b;
+      }
+      
+    }
+    else 
+    {
+      Serial.println("Error, no CRLF ending");
+      err = ERR; 
+      break;
+    }
+  }
+
+  if ('\r' != cr_lf[0] || '\n' != cr_lf[1])
+  {
+    Serial.println("Error, there is no CRLF");
+    err = ERR;
   }
   return err;
 }
@@ -186,6 +270,7 @@ void byte_to_hex(uint8_t byte, char *out) {
 
 Error create_frame_header_and_write(const byte *bytes, uint8_t size, uint16_t load_offset)
 {
+  Error err = OK;
   const byte record_mark = ':';
   byte load_offset_8bit[2] = { (load_offset >> 8) & 0x0F, load_offset & 0x0F };
 
@@ -215,16 +300,24 @@ Error create_frame_header_and_write(const byte *bytes, uint8_t size, uint16_t lo
 
   byte_to_hex(checksum, &bytes_with_frame[offset]); offset += 2;
 
-  Error err = write_to_mcu(bytes_with_frame, offset);
-  CHECK_ERROR_WITH_RETURN(err, "write_to_mcu in create_frame_header_and_write");
+  err = write_to_mcu(bytes_with_frame, offset);
 
-  return read_mcu_serial();
+  if (OK == err)
+  {
+    err = read_mcu_serial();
+  }
+  else
+  {
+    Serial.println("Fail to write in create_frame_header_and_write");
+  }
+  return err;
 }
 
 Error initialize_baudrate()
 {
   byte data = 'U';
-  Error err = write_to_mcu(&data, 1); // Don't need a frame for the auto baudrate
+  Error err = write(&data, 1); // Don't need a frame for the auto baudrate
+
   CHECK_ERROR_WITH_RETURN(err, "write_to_mcu in initialize_baudrate");
 
   /* Empty the UART buffer */

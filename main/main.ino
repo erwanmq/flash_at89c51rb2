@@ -64,8 +64,6 @@ Error program_data()
       Serial.println("");
       err = write_to_mcu(program_data, byteCount);
       CHECK_ERROR_WITH_RETURN(err, "program_data - write_to_mcu");
-      err = read_mcu_serial();
-      CHECK_ERROR_WITH_RETURN(err, "program_data - read_mcu_serial");
       byteCount = 0;
     }
     program_data[byteCount++] = input[i];
@@ -77,9 +75,7 @@ Error program_data()
   Serial.write(program_data, byteCount);
   Serial.println("");
 
-  err = write_to_mcu(program_data, byteCount);
-  CHECK_ERROR_WITH_RETURN(err, "program_data - write_to_mcu");
-  return read_mcu_serial();
+  return write_to_mcu(program_data, byteCount);
 }
 
 int insert_display_memory()
