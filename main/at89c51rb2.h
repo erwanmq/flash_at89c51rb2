@@ -18,6 +18,10 @@
 /*** Security Bytes ***/
 #define READ_SECURITY_BYTE    0x07
 #define READ_SSB 0x00
+#define READ_BSB 0x01
+
+#define READ_HARDWARE_BYTE1   0x0B
+#define READ_HARDWARE_BYTE2   0x00
 
 /** Write functions **/
 #define WRITE_FCT 0x03
@@ -28,6 +32,10 @@
 #define ERASE_BLK_3 0x80
 #define ERASE_BLK_4 0xC0
 #define FULL_CHIP_ERASE 0x07
+#define WRITE_FUSE  0x0A
+#define WRITE_FUSE_BLJB 0x04
+#define WRITE_BSB_SBV 0x06
+#define WRITE_BSB 0x00
 
 /** Display functions **/
 #define DISPLAY_FCT 0x04
@@ -284,5 +292,57 @@ Error display_memory(byte start_address[2], byte end_address[2])
     DISPLAY_DATA
   };
 
+  Serial.print("Address requested = ");
+  Serial.print(start_address[0]);
+  Serial.print(" - ");
+  Serial.println(start_address[1]);
+
+
   return create_frame_header_and_write(data, sizeof(data), 0);
+}
+
+Error read_bytes()
+{
+  Error err = OK;
+  byte data_hardware_byte[] = {
+    READ_FCT,
+    READ_HARDWARE_BYTE1,
+    READ_HARDWARE_BYTE2
+  };
+  err |= create_frame_header_and_write(data_hardware_byte, sizeof(data_hardware_byte), 0);
+
+  byte data_bsb_byte[] = {
+    READ_FCT,
+    READ_SECURITY_BYTE,
+    READ_BSB
+  };
+  err |= create_frame_header_and_write(data_bsb_byte, sizeof(data_bsb_byte), 0);
+
+  return err;
+}
+
+/* 1 = User's application
+   0 = Bootloader
+*/
+Error finish_flash()
+{
+  byte data[] = {
+    WRITE_FCT,
+    WRITE_FUSE,
+    WRITE_FUSE_BLJB,
+    1
+  };
+
+  Error err = create_frame_header_and_write(data, sizeof(data), 0);
+
+  byte data2[] = {
+    WRITE_FCT,
+    WRITE_BSB_SBV,
+    WRITE_BSB,
+    0
+  };
+
+  err |= create_frame_header_and_write(data2, sizeof(data2), 0);
+
+  return err;
 }

@@ -120,6 +120,8 @@ Error display_memory()
   return display_memory(start_addr, end_addr);
 }
 
+
+
 void setup ()
 {
   mcuSerial.begin(BAUDRATE);
@@ -145,6 +147,8 @@ void loop ()
   Serial.println("Erase a memory block: 3");
   Serial.println("Program data: 4");
   Serial.println("Display memory data: 5");
+  Serial.println("Finish flash: 6");
+  Serial.println("Read Hardware Byte: 7");
   while(!Serial.available()); // Wait for an answer
 
   Error err = OK;
@@ -171,6 +175,14 @@ void loop ()
 
     case '5':
       err = display_memory();
+      break;
+    
+    case '6':
+      err = finish_flash();
+      break;
+    
+    case '7':
+      err = read_bytes();
       break;
   }
   CHECK_ERROR(err, "error");
