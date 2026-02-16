@@ -46,7 +46,6 @@ void computer_serial_print(const char* buffer)
 
 int computer_serial_read(uint8_t *i_buffer, uint8_t size_to_read)
 {
-    int err = 0;
     int wait = computer_serial_wait_for_answer();
     if (0 == wait)
     {
@@ -59,8 +58,9 @@ int computer_serial_read(uint8_t *i_buffer, uint8_t size_to_read)
                 i_buffer[index++] = b;
             }
         }
+        return index;
     }
-    return err;
+    return 0;
 }
 
 int computer_serial_peek(uint8_t *i_buffer)

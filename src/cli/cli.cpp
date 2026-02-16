@@ -13,12 +13,14 @@ typedef struct
 
 int cli_read_manufacturer_id(void);
 int cli_read_ssb(void);
+int cli_full_chip_erase(void);
+int cli_program_data(void);
 static const cmd_parser_t command_table[] = 
 {
     {'1', cli_read_manufacturer_id, "Read manufacturer ID"},
     {'2', cli_read_ssb, "Read SSB"},
-    {'3', NULL, "Full Chip Erase"},
-    {'4', NULL, "Program data"},
+    {'3', cli_full_chip_erase, "Full Chip Erase"},
+    {'4', cli_program_data, "Program data"},
     {'5', NULL, "Display memory data"},
     {'6', NULL, "Finish flash"},
     {'7', NULL, "Read Hardware Bytes"},
@@ -109,6 +111,7 @@ int cli_read_ssb(void)
     {
         computer_serial_print("Failed to read MCU SSB\n");
     }
+    return err;
 }
 
 int cli_full_chip_erase(void)
@@ -122,6 +125,7 @@ int cli_full_chip_erase(void)
     {
         computer_serial_print("Error during full erase\n");
     }
+    return err;
 }
 
 int cli_program_data(void)
@@ -129,5 +133,9 @@ int cli_program_data(void)
     computer_serial_print("Enter your hex intel data in one row with the semicolon: ");
 
     uint8_t program_data[128] = { 0 };
-    computer_serial_read(program_data, sizeof(program_data));
+    int size = computer_serial_read(program_data, sizeof(program_data));
+
+    int err = at89c51rb2_write_program_data(program_data, size);
+    
+    return err;
 }

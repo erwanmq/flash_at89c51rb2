@@ -50,6 +50,23 @@ static void byte_to_ascii(uint8_t byte, char *out) {
     out[1] = hex_chars[byte & 0x0F];
 }
 
+static uint8_t hex_char_to_val(char c) {
+    if (c >= '0' && c <= '9')
+        return c - '0';
+    if (c >= 'A' && c <= 'F')
+        return c - 'A' + 10;
+    if (c >= 'a' && c <= 'f')
+        return c - 'a' + 10;
+
+    return 0; 
+}
+
+uint8_t ascii_to_byte(const char *in) {
+    uint8_t high = hex_char_to_val(in[0]);
+    uint8_t low  = hex_char_to_val(in[1]);
+    return (high << 4) | low;
+}
+
 static int at89c51rb2_write_and_check(const uint8_t *buffer, uint8_t size)
 {
     int err = 0;
@@ -229,21 +246,63 @@ int at89c51rb2_write_program_data_chunk(const uint8_t *buffer,
         const uint16_t size_until_page = MAX_PAGE_SIZE * page_pos - address;
 
         /* Left part */
-        err = at89c51rb2_write_program_data(data, size_until_page, address); // TODO: do something with this error
+        /* size * 2 because 1 data is 2 ascii */
+        err = at89c51rb2_write_program_data_chunk(data, size_until_page * 2, address); // TODO: do something with this error
         /* New address */
         address = MAX_PAGE_SIZE * page_pos;
         size    = size - size_until_page;
         data    = &buffer[size_until_page]; // Increase the pointer pos 
         
         /* Right part */
-        err = at89c51rb2_write_program_data(data, size, address);
+        err = at89c51rb2_write_program_data_chunk(data, size * 2, address);
     }
     else 
     {
-        err = at89c51rb2_create_frame_header_and_write(data, size, address);
+        uint8_t data_processed[MAX_PAGE_SIZE];
+        data_processed[0] = PROGRAM_DATA_FCT;
+        if (MAX_PAGE_SIZE > size)
+        {
+            memcpy(&data_processed[1], data, size * 2);
+            err = at89c51rb2_create_frame_header_and_write(data_processed, size * 2, address);
+        }
+        else 
+        {
+            err = -1;
+        }
     }
 
     return err; 
+}
+
+int at89c51rb2_write_program_data(const uint8_t *buffer, uint8_t size)
+{
+    int err = 0;
+    if (0 == size || NULL == buffer)
+    {
+        return -1;
+    }
+
+    int offset = 0;
+    while (size > offset)
+    {
+        if (':' != buffer[offset + 0])
+        {
+            err = -1;
+            break;
+        }
+
+        uint8_t byte_count = ascii_to_byte((const char*)&buffer[offset + 1]);
+        uint8_t address_msb = ascii_to_byte((const char*)&buffer[offset + 3]);
+        uint8_t address_lsb = ascii_to_byte((const char*)&buffer[offset + 5]);
+        uint16_t address = (((uint16_t)address_msb << 8) | (uint16_t)address_lsb);
+
+        const uint8_t *data = &buffer[offset + 9];
+
+        /* byte_count * 2 because one data is 2 ascii */
+        at89c51rb2_write_program_data_chunk(data, byte_count * 2, address);
+
+        offset += 9 + byte_count * 2 + 2; // header + data + checksum
+    }
 }
 
 /* Reading */
