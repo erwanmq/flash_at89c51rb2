@@ -11,11 +11,12 @@ typedef struct
     const char *description;
 } cmd_parser_t;
 
-int read_manufacturer_id(void);
+int cli_read_manufacturer_id(void);
+int cli_read_ssb(void);
 static const cmd_parser_t command_table[] = 
 {
-    {'1', read_manufacturer_id, "Read manufacturer ID"},
-    {'2', NULL, "Read SSB"},
+    {'1', cli_read_manufacturer_id, "Read manufacturer ID"},
+    {'2', cli_read_ssb, "Read SSB"},
     {'3', NULL, "Full Chip Erase"},
     {'4', NULL, "Program data"},
     {'5', NULL, "Display memory data"},
@@ -48,6 +49,7 @@ void cli_task(void)
         if (254 != c)
         {
             cli_process(c);
+            computer_serial_empty_buffer();
         }
     }
 }
@@ -74,21 +76,58 @@ void cli_process(char input_id)
     computer_serial_print(buffer);
 }
 
-int read_manufacturer_id(void)
+int cli_read_manufacturer_id(void)
 {
     uint8_t id[2];
-    computer_serial_print("READ MANUFACTURER ID");
     int err = at89c51rb2_read_id(id);
 
     if (0 == err)
     {
         char buffer[32];
-        snprintf(buffer, sizeof(buffer), "ID is: %02X %02X\r\n", id[0], id[1]);
+        snprintf(buffer, sizeof(buffer), "ID is: %c %c\r\n", id[0], id[1]);
         computer_serial_print(buffer);
     }
     else 
     {
-        computer_serial_print("Failed to read MCU ID");
+        computer_serial_print("Failed to read MCU ID\n");
     }
     return err;
+}
+
+int cli_read_ssb(void)
+{
+    uint8_t ssb[2];
+    int err = at89c51rb2_read_ssb(ssb);
+
+    if (0 == err)
+    {
+        char buffer[32];
+        snprintf(buffer, sizeof(buffer), "SSB value is: %c %c\r\n", ssb[0], ssb[1]);
+        computer_serial_print(buffer);
+    }
+    else 
+    {
+        computer_serial_print("Failed to read MCU SSB\n");
+    }
+}
+
+int cli_full_chip_erase(void)
+{
+    int err = at89c51rb2_full_chip_erase();
+    if (0 == err)
+    {
+        computer_serial_print("Chip full erased\n");
+    }
+    else 
+    {
+        computer_serial_print("Error during full erase\n");
+    }
+}
+
+int cli_program_data(void)
+{
+    computer_serial_print("Enter your hex intel data in one row with the semicolon: ");
+
+    uint8_t program_data[128] = { 0 };
+    computer_serial_read(program_data, sizeof(program_data));
 }

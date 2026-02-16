@@ -1,7 +1,6 @@
 #include "drivers/computer_serial.h"
 
 #define COMPUTER_BAUDRATE 19200
-#define TIMER_COMPUTER_ANSWER 10000000 // 10 seconds
 
 void computer_serial_init()
 {
@@ -11,8 +10,7 @@ void computer_serial_init()
 static int computer_serial_wait_for_answer()
 {
     int err = 0;
-    const unsigned long start = micros();
-    while ((!Serial.available()) && (micros() - start < TIMER_COMPUTER_ANSWER));
+    while ((!Serial.available()));
 
     if (!Serial.available())
     {
@@ -49,18 +47,17 @@ void computer_serial_print(const char* buffer)
 int computer_serial_read(uint8_t *i_buffer, uint8_t size_to_read)
 {
     int err = 0;
-    int index = 0;
-    while (0 == computer_serial_wait_for_answer())
+    int wait = computer_serial_wait_for_answer();
+    if (0 == wait)
     {
-        uint8_t b = Serial.read();
-        if (NULL != i_buffer && index < size_to_read)
+        int index = 0;
+        while (Serial.available() && index < size_to_read)
         {
-            i_buffer[index++] = b;
-        }
-
-        if (!Serial.available())
-        {
-            break;
+            uint8_t b = Serial.read();
+            if (NULL != i_buffer)
+            {
+                i_buffer[index++] = b;
+            }
         }
     }
     return err;
@@ -78,5 +75,12 @@ int computer_serial_peek(uint8_t *i_buffer)
             i_buffer = Serial.peek();
         }
     }
+    return err;
+}
+
+int computer_serial_empty_buffer(void)
+{
+    int err = 0;
+    Serial.readStringUntil('\n');
     return err;
 }

@@ -13,4 +13,6 @@ void computer_serial_print(const char* buffer);
 /* Used to read from the Serial */
 int computer_serial_read(uint8_t *i_buffer, uint8_t size_to_read);
 
+int computer_serial_empty_buffer(void);
+
 #endif /* COMPUTER_SERIAL_H__ */

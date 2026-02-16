@@ -12,9 +12,10 @@ int at89c51rb2_erase_block(uint8_t block);
 int at89c51rb2_full_chip_erase(void);
 
 /* Programming */
-int at89c51rb2_write_program_data(const uint8_t *buffer,
+int at89c51rb2_write_program_data_chunk(const uint8_t *buffer,
                            uint8_t size,
                            uint16_t address);
+int at89c51rb2_write_program_data(const uint8_t *buffer, uint8_t size);
 
 /* Reading */
 int at89c51rb2_read_serial(uint8_t *buffer, uint8_t size);

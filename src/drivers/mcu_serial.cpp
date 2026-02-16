@@ -50,18 +50,17 @@ int mcu_serial_read(uint8_t *i_buffer, uint8_t size_to_read)
 {
     int err = 0;
     /* Wait for a response */
-    int index = 0;
-    while (0 == mcu_serial_wait_for_answer())
+    int wait = mcu_serial_wait_for_answer();
+    if (0 == wait)
     {
-        uint8_t b = mcuSerial.read();
-        if (NULL != i_buffer && index < size_to_read)
+        int index = 0;
+        while (mcuSerial.available() && index < size_to_read)
         {
-            i_buffer[index++] = b;
-        }
-
-        if (!mcuSerial.available())
-        {
-            break;
+            uint8_t b = mcuSerial.read();
+            if (NULL != i_buffer)
+            {
+                i_buffer[index++] = b;
+            }
         }
     }
     return err;
@@ -79,5 +78,12 @@ int mcu_serial_peek(uint8_t* i_buffer)
             *i_buffer = (uint8_t)mcuSerial.peek();
         }
     }
+    return err;
+}
+
+int mcu_serial_empty_buffer(void)
+{
+    int err = 0;
+    mcuSerial.readStringUntil('\n');
     return err;
 }

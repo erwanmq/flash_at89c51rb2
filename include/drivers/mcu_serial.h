@@ -13,4 +13,6 @@ int mcu_serial_read(uint8_t *i_buffer, uint8_t size_to_read);
 
 int mcu_serial_peek(uint8_t* i_buffer);
 
+int mcu_serial_empty_buffer(void);
+
 #endif /* MCU_SERIAL_H__ */

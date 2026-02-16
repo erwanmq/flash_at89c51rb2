@@ -75,11 +75,12 @@ static int at89c51rb2_write_and_check(const uint8_t *buffer, uint8_t size)
         }
     }
 
-    /* Check the status */
-    uint8_t status;
-    mcu_serial_peek(&status);
     if (0 == err)
     {
+        /* Check the status */
+        uint8_t status;
+        mcu_serial_peek(&status);
+
         /* 
         *   X: checksum error
         *   P: Security error
@@ -88,6 +89,9 @@ static int at89c51rb2_write_and_check(const uint8_t *buffer, uint8_t size)
         */
         bool status_error   = ('X' == status || 'L' == status || 'P' == status); 
         bool status_ok      = ('.' == status);
+
+        Serial.print("Peek values is == ");
+        Serial.println(status);
 
         if (status_error || status_ok)
         {
@@ -208,7 +212,7 @@ int at89c51rb2_full_chip_erase(void)
 }
 
 /* Programming */
-int at89c51rb2_write_program_data(const uint8_t *buffer,
+int at89c51rb2_write_program_data_chunk(const uint8_t *buffer,
                            uint8_t size,
                            uint16_t address)
 {
@@ -259,6 +263,9 @@ int at89c51rb2_read_data(uint8_t *buffer, uint8_t size)
 
         buffer[index_buffer++] = b;
     } 
+    Serial.println("EMpty buffer");
+    mcu_serial_empty_buffer();
+    Serial.println("buffer empty");
     return err;
 }
 int at89c51rb2_read_id(uint8_t buffer[2])
@@ -284,7 +291,6 @@ int at89c51rb2_read_ssb(uint8_t buffer[2])
     {
         err = at89c51rb2_read_data(buffer, 2);
     }
-
     return err;
 }
 int at89c51rb2_read_bytes(uint8_t buffer[4])
@@ -308,5 +314,6 @@ int at89c51rb2_read_bytes(uint8_t buffer[4])
     {
         err = at89c51rb2_read_data(buffer, 4);
     }
+
     return err;
 }
