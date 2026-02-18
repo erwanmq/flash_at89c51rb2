@@ -63,6 +63,10 @@ int mcu_serial_read(uint8_t *i_buffer, uint8_t size_to_read)
             }
         }
     }
+    else 
+    {
+        err = -1;
+    }
     return err;
 }
 

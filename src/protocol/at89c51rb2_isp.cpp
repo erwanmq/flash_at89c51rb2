@@ -76,6 +76,7 @@ static int at89c51rb2_write_and_check(const uint8_t *buffer, uint8_t size)
         err = mcu_serial_write(&buffer[i], 1);
         if (0 != err)
         {
+            Serial.println("Failed to write mcu");
             break;
         }
 
@@ -83,10 +84,14 @@ static int at89c51rb2_write_and_check(const uint8_t *buffer, uint8_t size)
         err = mcu_serial_read(&echo, 1);
         if (0 != err)
         {
+            Serial.println("Failed to read mcu");
             break;
         }
         if (echo != buffer[i])
         {
+            Serial.print("Not the same: ");
+            Serial.print(buffer[i]);
+            Serial.println(echo);
             err = -1;
             break;
         }
@@ -193,6 +198,11 @@ int at89c51rb2_enter_bootloader(void)
 
     return at89c51rb2_write_and_check(&data, 1);
 }
+
+/* 1 = User's application
+
+   0 = Bootloader
+*/
 int at89c51rb2_finish_flash(void)
 {
     const uint8_t data[] = {
@@ -213,6 +223,7 @@ int at89c51rb2_finish_flash(void)
 
     err |= at89c51rb2_create_frame_header_and_write(data2, sizeof(data2), 0);
 
+    mcu_serial_empty_buffer();
     return err;
 }
 
@@ -220,12 +231,16 @@ int at89c51rb2_finish_flash(void)
 int at89c51rb2_erase_block(uint8_t block)
 {
     const uint8_t data[] = { WRITE_FCT, ERASE, block };
-    return at89c51rb2_create_frame_header_and_write(data, sizeof(data), 0);
+    int err = at89c51rb2_create_frame_header_and_write(data, sizeof(data), 0);
+    mcu_serial_empty_buffer();
+    return err;
 }
 int at89c51rb2_full_chip_erase(void)
 {
     const uint8_t data[] = { WRITE_FCT, FULL_CHIP_ERASE };
-    return at89c51rb2_create_frame_header_and_write(data, sizeof(data), 0);
+    int err = at89c51rb2_create_frame_header_and_write(data, sizeof(data), 0);
+    mcu_serial_empty_buffer();
+    return err;
 }
 
 /* Programming */
@@ -314,8 +329,8 @@ int at89c51rb2_read_data(uint8_t *buffer, uint8_t size)
     while (index_buffer < size) 
     {
         uint8_t b;
-        err = mcu_serial_read(&b, 1);
-        if (0 != err)
+        int read_status = mcu_serial_read(&b, 1);
+        if (0 != read_status)
         {
             break;
         }
@@ -338,6 +353,7 @@ int at89c51rb2_read_id(uint8_t buffer[2])
         err = at89c51rb2_read_data(buffer, 2);
     }
 
+    mcu_serial_empty_buffer();
     return err;
 }
 int at89c51rb2_read_ssb(uint8_t buffer[2])
@@ -350,9 +366,10 @@ int at89c51rb2_read_ssb(uint8_t buffer[2])
     {
         err = at89c51rb2_read_data(buffer, 2);
     }
+    mcu_serial_empty_buffer();
     return err;
 }
-int at89c51rb2_read_bytes(uint8_t buffer[4])
+int at89c51rb2_read_hardware_bytes(uint8_t buffer[4])
 {
     int err = 0;
     const uint8_t data_hardware_byte[] = {
@@ -373,6 +390,35 @@ int at89c51rb2_read_bytes(uint8_t buffer[4])
     {
         err = at89c51rb2_read_data(buffer, 4);
     }
+
+    mcu_serial_empty_buffer();
+    return err;
+}
+
+int at89c51rb2_display_memory(const char start_address[4], const char end_address[4], uint8_t *i_buffer, int size_buffer)
+{
+    uint8_t start_address_byte[2] = { ascii_to_byte(&start_address[0]), ascii_to_byte(&start_address[2]) };
+    uint8_t end_address_byte[2] = { ascii_to_byte(&end_address[0]), ascii_to_byte(&end_address[2]) };
+
+    const uint8_t data[] = { 
+      DISPLAY_FCT, 
+      start_address_byte[0], start_address_byte[1], 
+      end_address_byte[0], end_address_byte[1], 
+      DISPLAY_DATA
+    };
+
+    int err = at89c51rb2_create_frame_header_and_write(data, sizeof(data), 0);
+    Serial.println("DAta written");
+
+    if (0 == err)
+    {
+        Serial.println("DAta to read");
+      err = at89c51rb2_read_data(i_buffer, size_buffer);
+        Serial.println("DAta read");
+    }
+    Serial.println("Finish");
+
+    mcu_serial_empty_buffer();
 
     return err;
 }
